@@ -1,32 +1,41 @@
+from typing import Callable
 import pandas as pd
 import numpy as np
 
-def calculate_positions(data: pd.DataFrame, ticker1: str, ticker2: str, open_threshold: float, close_threshold: float) -> list[pd.Series]:
-    data['pos_1_long'] = 0
-    data['pos_2_long'] = 0
-    data['pos_1_short'] = 0
-    data['pos_2_short'] = 0
-    data.loc[data['zscore'] >= open_threshold, ('pos_1_short', 'pos_2_short')] = [ -1, 1 ] # Short spread
-    data.loc[data['zscore'] <= -open_threshold, ('pos_1_long', 'pos_2_long')] = [ 1, -1 ] # Long spread
-    data.loc[data['zscore'] <= close_threshold, ('pos_1_short', 'pos_2_short')] = 0 # Close position short
-    data.loc[data['zscore'] >= -close_threshold, ('pos_1_long', 'pos_2_long')] = 0 # Close position long
+def calculate_positions_from_lambda(data: pd.DataFrame, long: Callable[[any], pd.Series], short: Callable[[any], pd.Series]) -> pd.DataFrame:
+    df = data.copy()
+    
+    df[['pos_1_short', 'pos_2_short']] = df.apply(lambda row: short(row), axis=1) # Short spread
+    df[['pos_1_long', 'pos_2_long']] = df.apply(lambda row: long(row), axis=1)    # Long spread
 
-    data.ffill(inplace=True)
+    # Everything that isn't a signal will be NAN, so we fill data in right way
+    df.ffill(inplace=True)
+    df.bfill(inplace=True)
 
-    longs = data.loc[:, ('pos_1_long', 'pos_2_long')]
-    shorts = data.loc[:, ('pos_1_short', 'pos_2_short')]
+    longs = df.loc[:, ('pos_1_long', 'pos_2_long')].copy()
+    longs.columns = ['ticker1', 'ticker2']
 
-    positions = np.array(longs) + np.array(shorts)
-    positions = pd.DataFrame(positions)
+    shorts = df.loc[:, ('pos_1_short', 'pos_2_short')].copy()
+    shorts.columns = ['ticker1', 'ticker2']
 
-    longs_with_dates = data.loc[:, ('pos_1_long', 'pos_2_long')].copy()
-    longs_with_dates.columns = [ticker1, ticker2]
+    positions = longs + shorts
+    return positions
 
-    shorts_with_dates = data.loc[:, ('pos_1_short', 'pos_2_short')].copy()
-    shorts_with_dates.columns = [ticker1, ticker2]
-
-    positions_with_dates = longs_with_dates + shorts_with_dates
-
-    data.drop(columns=['pos_1_long', 'pos_2_long', 'pos_1_short', 'pos_2_short'], inplace=True)
-
-    return (positions, positions_with_dates)
+def calculate_positions_from_zscore(data: pd.DataFrame, open_threshold: float, close_threshold: float) -> pd.DataFrame:
+    def short(row) -> pd.Series:
+        if (row['zscore'] >= open_threshold):
+            return pd.Series([-1, 1])
+        elif (row['zscore'] <= close_threshold):
+            return pd.Series([0, 0])
+        
+        return pd.Series([np.nan, np.nan])
+    
+    def long(row) -> pd.Series:
+        if (row['zscore'] <= -open_threshold):
+            return pd.Series([1, -1])
+        elif (row['zscore'] >= - close_threshold):
+            return pd.Series([0,0])
+        
+        return pd.Series([np.nan, np.nan])
+    
+    return calculate_positions_from_lambda(data, long, short)

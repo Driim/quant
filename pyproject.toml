@@ -17,6 +17,7 @@ dependencies = [
     "matplotlib (>=3.10.5,<4.0.0)",
     "pyarrow (>=21.0.0,<22.0.0)",
     "quantstats (>=0.0.69,<0.0.70)",
+    "filterpy (>=1.4.5,<2.0.0)",
 ]
 
 [tool.poetry]
